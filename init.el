@@ -175,7 +175,9 @@ PACKAGE is installed and the current version is deleted."
            delete-selection-mode      ; Replace selected text.
            recentf-mode               ; Recently opened files.
            show-paren-mode            ; Highlight matching parentheses.
-           global-undo-tree-mode))    ; Undo as a tree.
+           global-undo-tree-mode      ; Undo as a tree.
+           desktop-save-mode          ; Saves emacs session
+           global-visual-line-mode))  ; Break lines for viewing pleasure
   (funcall mode 1))
 
 (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
@@ -208,6 +210,9 @@ PACKAGE is installed and the current version is deleted."
               (powerline-render center)
               (powerline-fill nil (powerline-width rhs))
               (powerline-render rhs))))))
+
+(require 'smooth-scroll)
+(smooth-scroll-mode t)
 
 (dolist (mode
          '(ido-mode                   ; Interactivly do.
@@ -434,8 +439,8 @@ LANGUAGES (cyclic) list."
 (defun c-setup ()
   (local-set-key (kbd "C-c C-c") 'compile))
 
-(require 'auto-complete-c-headers)
-(add-to-list 'ac-sources 'ac-source-c-headers)
+;;(require 'auto-complete-c-headers)
+;(add-to-list 'ac-sources 'ac-source-c-headers)
 
 (add-hook 'c-mode-common-hook 'c-setup)
 
