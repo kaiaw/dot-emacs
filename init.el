@@ -36,7 +36,7 @@ PACKAGE is installed and the current version is deleted."
                          (package-desc-vers (cdr pkg-desc)))))
       (package-install package))))
 
-(defvar days-between-updates 1)
+(defvar days-between-updates 7)
 (defvar do-package-update-on-init t)
 (defvar package-last-update-file
   (expand-file-name (concat user-emacs-directory ".package-last-update")))
@@ -75,6 +75,7 @@ PACKAGE is installed and the current version is deleted."
              ace-jump-mode     ; quick cursor location minor mode
              auto-compile      ; automatically compile Emacs Lisp libraries
              auto-complete     ; auto completion
+             auto-complete-c-headers
              elscreen          ; window session manager
              expand-region     ; Increase selected region by semantic units
              flx-ido           ; flx integration for ido
@@ -93,7 +94,8 @@ PACKAGE is installed and the current version is deleted."
              powerline         ; Rewrite of Powerline
              pretty-lambdada   ; the word `lambda' as the Greek letter.
              smex              ; M-x interface with Ido-style fuzzy matching.
-             undo-tree))       ; Treat undo history as a tree
+             undo-tree         ; Treat undo history as a tree
+             smooth-scroll))   ; Smoth scrolling
     (upgrade-or-install-package package))
   ;; This package is only relevant for Mac OS X.
   (when (memq window-system '(mac ns))
@@ -184,8 +186,10 @@ PACKAGE is installed and the current version is deleted."
 
 (load-theme 'monokai t)
 
-(when (member "Inconsolata-g" (font-family-list))
-  (set-face-attribute 'default nil :font "Inconsolata-g-11"))
+(cond ((member "Droid Sans Mono" (font-family-list))
+       (set-face-attribute 'default nil :font "Droid Sans Mono-10"))
+      ((member "Inconsolata" (font-family-list))
+       (set-face-attribute 'default nil :font "Inconsolata-11")))
 
 (setq-default
  mode-line-format
@@ -380,6 +384,7 @@ LANGUAGES (cyclic) list."
 (global-set-key (kbd "C-c t")    'org-agenda-list)
 (global-set-key (kbd "C-x k")    'kill-this-buffer)
 (global-set-key (kbd "C-x C-r")  'recentf-ido-find-file)
+(global-set-key (kbd "C-S-k")  '(lambda () (interactive) (kill-line 0)))
 
 (global-set-key (kbd "C-c l")    'cycle-languages)
 (global-set-key (kbd "C-c j")    'remove-whitespace-inbetween)
@@ -436,13 +441,27 @@ LANGUAGES (cyclic) list."
   '(add-to-list 'ac-modes 'geiser-repl-mode))
 (setq geiser-active-implementations '(racket))
 
-(defun c-setup ()
-  (local-set-key (kbd "C-c C-c") 'compile))
+;; defining a function that sets more accessible keyboard-bindings to
+;; hiding/showing code-blocs
+(defun hideshow-on ()
+  (local-set-key (kbd "C-c <right>") 'hs-show-block)
+  (local-set-key (kbd "C-c <left>")  'hs-hide-block)
+  (local-set-key (kbd "C-c <up>")    'hs-hide-all)
+  (local-set-key (kbd "C-c <down>")  'hs-show-all)
+  (hs-minor-mode t))
 
-;;(require 'auto-complete-c-headers)
-;(add-to-list 'ac-sources 'ac-source-c-headers)
+;; now we have to tell emacs where to load these functions. Showing
+;; and hiding codeblocks could be useful for all c-like programming
+;; (java is c-like) languages, so we add it to the c-mode-common-hook.
+(add-hook 'c-mode-common-hook 'hideshow-on)
 
-(add-hook 'c-mode-common-hook 'c-setup)
+     (defun c-setup ()
+       (local-set-key (kbd "C-c C-c") 'compile))
+     
+     (require 'auto-complete-c-headers)
+     (add-to-list 'ac-sources 'ac-source-c-headers)
+     
+     (add-hook 'c-mode-common-hook 'c-setup)
 
 (define-abbrev-table 'java-mode-abbrev-table
   '(("psv" "public static void main(String[] args) {" nil 0)
@@ -486,3 +505,4 @@ LANGUAGES (cyclic) list."
 (add-hook 'haskell-mode-hook 'turn-on-haskell-indent)
 
 (add-to-list 'matlab-shell-command-switches "-nosplash")
+(put 'downcase-region 'disabled nil)

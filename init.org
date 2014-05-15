@@ -34,16 +34,16 @@
    #+END_SRC
 
 ** Package
-
+   
    Managing extensions for Emacs is simplified using =package= which
    is built in to Emacs 24 and newer. To load downloaded packages we
    need to initialize =package=.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (require 'package)
      (package-initialize)
    #+END_SRC
-
+   
    Packages can be fetched from different mirrors, [[http://melpa.milkbox.net/#/][melpa]] is the largest
    archive and is well maintained.
    
@@ -51,10 +51,10 @@
      (add-to-list 'package-archives
                   '("MELPA" . "http://melpa.milkbox.net/packages/") t)
    #+END_SRC
-
+   
    We can define a predicate that tells us wither or not the newest version
    of a package is installed.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (defun newest-package-installed-p (package)
        "Return true if the newest available PACKAGE is installed."
@@ -66,11 +66,11 @@
                 (version-list-= (package-desc-vers (cdr local-pkg-desc))
                                 (package-desc-vers (cdr newest-pkg-desc)))))))
    #+END_SRC
-
+   
    Let's write a function to install a package if it is not installed or
    upgrades it if a new version has been released. Here our predicate comes
    in handy.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (defun upgrade-or-install-package (package)
        "Unless the newest available version of PACKAGE is installed
@@ -83,7 +83,7 @@
                               (package-desc-vers (cdr pkg-desc)))))
            (package-install package))))
    #+END_SRC
-
+   
    The =package-refresh-contents= function downloads archive descriptions,
    this is a major bottleneck in this configuration. To avoid this we can
    try to only check for updates once every day or so. Here are three
@@ -91,20 +91,20 @@
    second specifies wither one should update during the initialization. The
    third is a path to a file where a time-stamp is stored in order to check
    when packages were updated last.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
-     (defvar days-between-updates 1)
+     (defvar days-between-updates 7)
      (defvar do-package-update-on-init t)
      (defvar package-last-update-file
        (expand-file-name (concat user-emacs-directory ".package-last-update")))
    #+END_SRC
-
+   
    The tricky part is figuring out when the last time the Emacs was updated!
    Here is a hacky way of doing it, using [[http://www.gnu.org/software/emacs/manual/html_node/emacs/Time-Stamps.html][time-stamps]]. By adding a
    time-stamp to the a file, we can determine wither or not to do an
    update. After that we must run the =time-stamp=-function to update the
    time-stamp.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (require 'time-stamp)
      ;; Open the package-last-update-file
@@ -130,11 +130,11 @@
          (insert "Time-stamp: <>")
          (time-stamp)))
    #+END_SRC
-
+   
    Now we can use the function above to make sure packages are installed and
    up to date. Here are some packages I find useful (some of these
    configurations are also dependent on them).
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (when (and do-package-update-on-init
                 (y-or-n-p "Update all packages?"))
@@ -146,6 +146,7 @@
                   ace-jump-mode     ; quick cursor location minor mode
                   auto-compile      ; automatically compile Emacs Lisp libraries
                   auto-complete     ; auto completion
+                  auto-complete-c-headers
                   elscreen          ; window session manager
                   expand-region     ; Increase selected region by semantic units
                   flx-ido           ; flx integration for ido
@@ -164,13 +165,14 @@
                   powerline         ; Rewrite of Powerline
                   pretty-lambdada   ; the word `lambda' as the Greek letter.
                   smex              ; M-x interface with Ido-style fuzzy matching.
-                  undo-tree))       ; Treat undo history as a tree
+                  undo-tree         ; Treat undo history as a tree
+                  smooth-scroll))   ; Smoth scrolling
          (upgrade-or-install-package package))
        ;; This package is only relevant for Mac OS X.
        (when (memq window-system '(mac ns))
          (upgrade-or-install-package 'exec-path-from-shell)))
    #+END_SRC
-
+   
 ** Mac OS X
 
    I run this configuration mostly on Mac OS X, so we need a couple of
@@ -353,8 +355,10 @@
    Use the [[http://www.levien.com/type/myfonts/inconsolata.html][Inconsolata]] font if it's installed on the system.
 
    #+BEGIN_SRC emacs-lisp :tangle yes
-     (when (member "Inconsolata-g" (font-family-list))
-       (set-face-attribute 'default nil :font "Inconsolata-g-11"))
+     (cond ((member "Droid Sans Mono" (font-family-list))
+            (set-face-attribute 'default nil :font "Droid Sans Mono-10"))
+           ((member "Inconsolata" (font-family-list))
+            (set-face-attribute 'default nil :font "Inconsolata-11")))
    #+END_SRC
 
    [[https://github.com/milkypostman/powerline][Powerline]] is an extension to customize the mode line. This is modified
@@ -702,6 +706,8 @@
      (global-set-key (kbd "C-c t")    'org-agenda-list)
      (global-set-key (kbd "C-x k")    'kill-this-buffer)
      (global-set-key (kbd "C-x C-r")  'recentf-ido-find-file)
+     (global-set-key (kbd "C-S-k")  '(lambda () (interactive) (kill-line 0)))
+
    #+END_SRC
 
    Bind the functions defined [[sec:defuns][above]].
@@ -749,6 +755,14 @@
        (when (executable-find ispell-program-name)
          ad-do-it))
    #+END_SRC
+
+** Fixes
+This is a workaround for dead-keys not working with emacs with some keyboard
+layouts in Gnome WM. 
+
+#+BEGIN_SRC elisp
+(require 'iso-transl)
+#+END_SRC
 
 * Language mode specific
 ** Lisp
@@ -829,34 +843,49 @@
    #+END_SRC
 
 ** Java and C
-
+   
    The =c-mode-common-hook= is a general hook that work on all C-like
    languages (C, C++, Java, etc...). I like being able to quickly compile
    using =C-c C-c= (instead of =M-x compile=), a habit from =latex-mode=.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
+
+;; defining a function that sets more accessible keyboard-bindings to
+;; hiding/showing code-blocs
+(defun hideshow-on ()
+  (local-set-key (kbd "C-c <right>") 'hs-show-block)
+  (local-set-key (kbd "C-c <left>")  'hs-hide-block)
+  (local-set-key (kbd "C-c <up>")    'hs-hide-all)
+  (local-set-key (kbd "C-c <down>")  'hs-show-all)
+  (hs-minor-mode t))
+
+;; now we have to tell emacs where to load these functions. Showing
+;; and hiding codeblocks could be useful for all c-like programming
+;; (java is c-like) languages, so we add it to the c-mode-common-hook.
+(add-hook 'c-mode-common-hook 'hideshow-on)
+
      (defun c-setup ()
        (local-set-key (kbd "C-c C-c") 'compile))
      
-     ;;(require 'auto-complete-c-headers)
-     ;(add-to-list 'ac-sources 'ac-source-c-headers)
+     (require 'auto-complete-c-headers)
+     (add-to-list 'ac-sources 'ac-source-c-headers)
      
      (add-hook 'c-mode-common-hook 'c-setup)
    #+END_SRC
-
+   
    Some statements in Java appear often, and become tedious to write
    out. We can use abbrevs to speed this up.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (define-abbrev-table 'java-mode-abbrev-table
        '(("psv" "public static void main(String[] args) {" nil 0)
          ("sopl" "System.out.println" nil 0)
          ("sop" "System.out.printf" nil 0)))
    #+END_SRC
-
+   
    To be able to use the abbrev table defined above, =abbrev-mode= must be
    activated.
-
+   
    #+BEGIN_SRC emacs-lisp :tangle yes
      (defun java-setup ()
        (abbrev-mode t)
@@ -864,7 +893,7 @@
 
      (add-hook 'java-mode-hook 'java-setup)
    #+END_SRC
-
+   
 ** Assembler
 
    When writing assembler code I use =#= for comments. By defining
