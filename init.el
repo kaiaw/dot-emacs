@@ -189,7 +189,7 @@ PACKAGE is installed and the current version is deleted."
 (cond ((member "Droid Sans Mono" (font-family-list))
        (set-face-attribute 'default nil :font "Droid Sans Mono-10"))
       ((member "Inconsolata" (font-family-list))
-       (set-face-attribute 'default nil :font "Inconsolata-11")))
+       (set-face-attribute 'default nil :font "Inconsolata-10")))
 
 (setq-default
  mode-line-format
@@ -505,4 +505,3 @@ LANGUAGES (cyclic) list."
 (add-hook 'haskell-mode-hook 'turn-on-haskell-indent)
 
 (add-to-list 'matlab-shell-command-switches "-nosplash")
-(put 'downcase-region 'disabled nil)

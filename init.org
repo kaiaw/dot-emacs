@@ -2,7 +2,7 @@
 #+LATEX_HEADER: \usepackage{inconsolata}
 #+TITLE: Emacs configuration file
 #+AUTHOR: Lars Tveito, Kai Wig
-
+ 
 * About
   This is a Emacs configuration file written in =org-mode=. There are a few
   reasons why I wanted to do this. My =.emacs.d/= was a mess, and needed a
@@ -345,7 +345,7 @@
 ** Visual
    
 
-
+ 
    Change the color-theme to =monokai= (downloaded using =package=).
 
    #+BEGIN_SRC emacs-lisp :tangle yes
@@ -358,7 +358,7 @@
      (cond ((member "Droid Sans Mono" (font-family-list))
             (set-face-attribute 'default nil :font "Droid Sans Mono-10"))
            ((member "Inconsolata" (font-family-list))
-            (set-face-attribute 'default nil :font "Inconsolata-11")))
+            (set-face-attribute 'default nil :font "Inconsolata-10")))
    #+END_SRC
 
    [[https://github.com/milkypostman/powerline][Powerline]] is an extension to customize the mode line. This is modified
@@ -760,7 +760,7 @@
 This is a workaround for dead-keys not working with emacs with some keyboard
 layouts in Gnome WM. 
 
-#+BEGIN_SRC elisp
+#+BEGIN_SRC elisp :tangle yes
 (require 'iso-transl)
 #+END_SRC
 
