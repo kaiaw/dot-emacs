@@ -70,32 +70,37 @@ PACKAGE is installed and the current version is deleted."
   (package-refresh-contents)
 
   (dolist (package
-           '(ac-geiser         ; Auto-complete backend for geiser
-             ac-slime          ; An auto-complete source using slime completions
-             ace-jump-mode     ; quick cursor location minor mode
-             auto-compile      ; automatically compile Emacs Lisp libraries
-             auto-complete     ; auto completion
-             auto-complete-c-headers
-             elscreen          ; window session manager
-             expand-region     ; Increase selected region by semantic units
-             flx-ido           ; flx integration for ido
-             ido-vertical-mode ; Makes ido-mode display vertically.
-             geiser            ; GNU Emacs and Scheme talk to each other
-             haskell-mode      ; A Haskell editing mode
-             jedi              ; Python auto-completion for Emacs
-             magit             ; control Git from Emacs
-             markdown-mode     ; Emacs Major mode for Markdown-formatted files.
-             matlab-mode       ; MATLAB integration with Emacs.
-             monokai-theme     ; A fruity color theme for Emacs.
-             move-text         ; Move current line or region with M-up or M-down
-             multiple-cursors  ; Multiple cursors for Emacs.
-             org               ; Outline-based notes management and organizer
-             paredit           ; minor mode for editing parentheses
-             powerline         ; Rewrite of Powerline
-             pretty-lambdada   ; the word `lambda' as the Greek letter.
-             smex              ; M-x interface with Ido-style fuzzy matching.
-             undo-tree         ; Treat undo history as a tree
-             smooth-scroll))   ; Smoth scrolling
+           '(ac-geiser                       ; Auto-complete backend for geiser
+             ac-slime                        ; An auto-complete source using slime completions
+             ace-jump-mode                   ; quick cursor location minor mode
+             auto-compile                    ; automatically compile Emacs Lisp libraries
+             auto-complete                   ; auto completion
+             auto-complete-c-headers         ; autocomplete c-header files.
+             elscreen                        ; window session manager
+             expand-region                   ; Increase selected region by semantic units
+             flx-ido                         ; flx integration for ido
+             ido-vertical-mode               ; Makes ido-mode display vertically.
+             geiser                          ; GNU Emacs and Scheme talk to each other
+             haskell-mode                    ; A Haskell editing mode
+             jedi                            ; Python auto-completion for Emacs
+             magit                           ; control Git from Emacs
+             markdown-mode                   ; Emacs Major mode for Markdown-formatted files.
+             matlab-mode                     ; MATLAB integration with Emacs.
+             monokai-theme                   ; A fruity color theme for Emacs.
+             move-text                       ; Move current line or region with M-up or M-down
+             multiple-cursors                ; Multiple cursors for Emacs.
+             org                             ; Outline-based notes management and organizer
+             paredit                         ; minor mode for editing parentheses
+             powerline                       ; Rewrite of Powerline
+             pretty-lambdada                 ; the word `lambda' as the Greek letter.
+             smex                            ; M-x interface with Ido-style fuzzy matching.
+             undo-tree                       ; Treat undo history as a tree
+             smooth-scroll                   ; Smoth scrolling
+             flycheck                        ; On the fly compilation
+             flymake-google-cpplint          ; flymake with google
+             flymake-cursor                  ; Show syntax warnings at cursor.
+             google-c-style                  ; C-style settings for flymake. 
+             ))
     (upgrade-or-install-package package))
   ;; This package is only relevant for Mac OS X.
   (when (memq window-system '(mac ns))
@@ -442,26 +447,88 @@ LANGUAGES (cyclic) list."
 (setq geiser-active-implementations '(racket))
 
 ;; defining a function that sets more accessible keyboard-bindings to
-;; hiding/showing code-blocs
-(defun hideshow-on ()
-  (local-set-key (kbd "C-c <right>") 'hs-show-block)
-  (local-set-key (kbd "C-c <left>")  'hs-hide-block)
-  (local-set-key (kbd "C-c <up>")    'hs-hide-all)
-  (local-set-key (kbd "C-c <down>")  'hs-show-all)
-  (hs-minor-mode t))
+         ;; hiding/showing code-blocs
+         (defun hideshow-on ()
+           (local-set-key (kbd "C-c <right>") 'hs-show-block)
+           (local-set-key (kbd "C-c <left>")  'hs-hide-block)
+           (local-set-key (kbd "C-c <up>")    'hs-hide-all)
+           (local-set-key (kbd "C-c <down>")  'hs-show-all)
+           (hs-minor-mode t))
 
-;; now we have to tell emacs where to load these functions. Showing
-;; and hiding codeblocks could be useful for all c-like programming
-;; (java is c-like) languages, so we add it to the c-mode-common-hook.
-(add-hook 'c-mode-common-hook 'hideshow-on)
+         ;; now we have to tell emacs where to load these functions. Showing
+         ;; and hiding codeblocks could be useful for all c-like programming
+         ;; (java is c-like) languages, so we add it to the c-mode-common-hook.
+         (add-hook 'c-mode-common-hook 'hideshow-on)
 
-     (defun c-setup ()
-       (local-set-key (kbd "C-c C-c") 'compile))
-     
-     (require 'auto-complete-c-headers)
-     (add-to-list 'ac-sources 'ac-source-c-headers)
-     
-     (add-hook 'c-mode-common-hook 'c-setup)
+         (defun c-setup ()
+           (local-set-key (kbd "C-c C-c") 'compile))
+
+         (add-hook 'c-mode-common-hook 'c-setup)
+
+         ;; Make autocomplete work with c header files. 
+         (defun ac-c-header-init ()
+           (require 'auto-complete-c-headers)
+           (add-to-list 'ac-sources 'ac-source-c-headers)
+           (add-to-list 'achead:include-directories '"/usr/include:/usr/local/include:/usr/lib/gcc/x86_64-linux-gnu/4.8/include"))
+
+         (add-hook 'c-mode-hook 'ac-c-header-init)
+         (add-hook 'c++-mode-hook 'ac-c-header-init)
+
+
+;;; new macro declare-abbrevs -- similar to define-abbrev-table
+     (require 'cl)
+     (defvar my-abbrev-tables nil)
+     (defun my-abbrev-hook ()
+       (let ((def (assoc (symbol-name last-abbrev) my-abbrev-tables)))
+         (when def
+           (execute-kbd-macro (cdr def)))
+         t))
+     (put 'my-abbrev-hook 'no-self-insert t)
+     (defmacro declare-abbrevs (table abbrevs)
+       (if (consp table)
+           `(progn ,@(loop for tab in table
+                           collect `(declare-abbrevs ,tab ,abbrevs)))
+         `(progn
+            ,@(loop for abbr in abbrevs
+                    do (when (third abbr)
+                         (push (cons (first abbr) (read-kbd-macro (third abbr)))
+                               my-abbrev-tables))
+                    collect `(define-abbrev ,table
+                               ,(first abbr) ,(second abbr) ,(and (third abbr)
+                                                                  ''my-abbrev-hook))))))
+     (put 'declare-abbrevs 'lisp-indent-function 2)
+
+
+         (eval-after-load "cc-mode"
+          '(declare-abbrevs (c-mode-abbrev-table c++-mode-abbrev-table)
+               (("{" "{\n\n}" "C-p TAB")
+                ("#s"    "#include <>" "C-b")
+                ("#i"    "#include \"\"" "C-b")
+                ("#ifn"  "#ifndef")
+                ("#e"    "#endif /* */" "C-3 C-b")
+                ("#ifd"  "#ifdef")
+                ("imain" "int main (int ac, char **av[])\n{\n\n}" "C-p TAB")
+                ("if"    "if () {\n}\n" "C-M-b C-M-q C-- C-M-d")
+                ("else"  "else {\n}\n"  "C-M-b C-M-q C-M-d RET")
+                ("while" "while () {\n}\n" "C-M-b C-M-q C-- C-M-d")
+                ("for"   "for (;;) {\n}\n" "C-M-b C-M-q C-M-b C-M-d")
+                ("pr"    "printf (\"\")" "C-2 C-b"))))
+
+
+        (defun flymake-google-init ()
+          (require 'flymake-google-cpplint)
+          (custom-set-variables
+            '(flymake-google-cpplint-command "/usr/local/lib/python2.7/dist-packages/cpplint/cpplint.py"))
+          (flymake-google-cpplint-load))
+
+        
+        (add-hook 'c-mode-hook 'flymake-google-init)
+        (add-hook 'c++-mode-hook 'flymake-google-init)
+        
+        (require 'flymake-cursor)
+        (require 'google-c-style)
+        (add-hook 'c-mode-common-hook 'google-set-c-style)
+        (add-hook 'c-mode-common-hook 'google-make-newline-indent)
 
 (define-abbrev-table 'java-mode-abbrev-table
   '(("psv" "public static void main(String[] args) {" nil 0)
