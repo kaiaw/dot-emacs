@@ -1,5 +1,8 @@
+#+BABEL: :cache yes
 #+LATEX_HEADER: \usepackage{parskip}
 #+LATEX_HEADER: \usepackage{inconsolata}
+#+PROPERTY: header-args :tangle yes :comments org
+
 #+TITLE: Emacs configuration file
 #+AUTHOR: Lars Tveito, Kai Wig
  
@@ -21,8 +24,8 @@
    the =after-save-hook= ensuring to always tangle and byte-compile the
    =org=-document after changes.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun init-hook ()
+   #+BEGIN_SRC emacs-lisp
+     (defun tangle-init ()
        "If the current buffer is 'init.org' the code-blocks are
      tangled, and the tangled file is compiled."
        (when (equal (buffer-file-name)
@@ -30,7 +33,7 @@
          (org-babel-tangle)
          (byte-compile-file (concat user-emacs-directory "init.el"))))
 
-     (add-hook 'after-save-hook 'init-hook)
+     (add-hook 'after-save-hook 'tangle-init)
    #+END_SRC
 
 ** Package
@@ -41,6 +44,7 @@
    
    #+BEGIN_SRC emacs-lisp :tangle yes
      (require 'package)
+     (setq package-enable-at-startup nil)
      (package-initialize)
    #+END_SRC
    
@@ -70,7 +74,7 @@
    Let's write a function to install a package if it is not installed or
    upgrades it if a new version has been released. Here our predicate comes
    in handy.
-   
+
    #+BEGIN_SRC emacs-lisp :tangle yes
      (defun upgrade-or-install-package (package)
        "Unless the newest available version of PACKAGE is installed
@@ -81,14 +85,25 @@
              (package-delete (symbol-name package)
                              (package-version-join
                               (package-desc-vers (cdr pkg-desc)))))
-           (package-install package))))
+           (and (assq package package-archive-contents)
+                (package-install package)))))
+   #+END_SRC
+
+   Also, we will need a function to find all dependencies from a given package.
+
+   #+BEGIN_SRC emacs-lisp
+   (defun dependencies (package)
+     "Returns a list of dependencies from a given PACKAGE."
+     (let* ((pkg-desc (assq package package-alist))
+            (reqs (and pkg-desc (package-desc-reqs (cdr pkg-desc)))))
+       (mapcar 'car reqs)))
    #+END_SRC
    
    The =package-refresh-contents= function downloads archive descriptions,
    this is a major bottleneck in this configuration. To avoid this we can
    try to only check for updates once every day or so. Here are three
    variables. The first specifies how often we should check for updates. The
-   second specifies wither one should update during the initialization. The
+   second specifies whether one should update during the initialization. The
    third is a path to a file where a time-stamp is stored in order to check
    when packages were updated last.
    
@@ -173,9 +188,11 @@
                   google-c-style                  ; C-style settings for flymake. 
                   ))
          (upgrade-or-install-package package))
+
        ;; This package is only relevant for Mac OS X.
        (when (memq window-system '(mac ns))
-         (upgrade-or-install-package 'exec-path-from-shell)))
+         (upgrade-or-install-package 'exec-path-from-shell))
+       (package-initialize))
    #+END_SRC
    
 ** Mac OS X
@@ -187,23 +204,29 @@
    along with external processes a lot simpler. I also prefer using the
    =Command=-key as the =Meta=-key.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (when (memq window-system '(mac ns))
        (setq mac-option-modifier nil
              mac-command-modifier 'meta
              x-select-enable-clipboard t)
-       (exec-path-from-shell-initialize))
+       (run-with-idle-timer 5 nil 'exec-path-from-shell-initialize))
    #+END_SRC
 
 ** Require
 
    Some features are not loaded by default to minimize initialization time,
-   so they have to be required (or loaded, if you will).
+   so they have to be required (or loaded, if you will). =require=-calls
+   tends to lead to the largest bottleneck's in a
+   configuration. =idle-require= delays the =require=-calls to a time where
+   Emacs is in idle. So this is great for stuff you eventually want to load,
+   but is not a high priority.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
+     (require 'idle-require)             ; Need in order to use idle-require
+     (require 'auto-complete-config)     ; a configuration for auto-complete-mode
+
      (dolist (feature
               '(auto-compile             ; auto-compile .el files
-                auto-complete-config     ; a configuration for auto-complete-mode
                 jedi                     ; auto-completion for python
                 matlab                   ; matlab-mode
                 ob-matlab                ; org-babel matlab
@@ -211,8 +234,12 @@
                 ox-md                    ; Markdown exporter (from org)
                 pretty-lambdada          ; show 'lambda' as the greek letter.
                 recentf                  ; recently opened files
+                smex                     ; M-x interface Ido-style.
                 tex-mode))               ; TeX, LaTeX, and SliTeX mode commands
-       (require feature))
+       (idle-require feature))
+
+     (setq idle-require-idle-delay 5)
+     (idle-require-mode 1)
    #+END_SRC
 
 ** Sane defaults
@@ -221,13 +248,19 @@
 
    We can set variables to whatever value we'd like using =setq=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq initial-scratch-message nil     ; Clean scratch buffer.
-           inhibit-startup-message t       ; No splash screen please.
-           default-input-method "TeX"      ; Use TeX when toggeling input method.
-           ring-bell-function 'ignore      ; Quite as a mouse.
-           doc-view-continuous t           ; At page edge goto next/previous.
-           echo-keystrokes 0.1)            ; Show keystrokes asap.
+   #+BEGIN_SRC emacs-lisp
+     (setq default-input-method "TeX"    ; Use TeX when toggeling input method.
+           doc-view-continuous t         ; At page edge goto next/previous.
+           echo-keystrokes 0.1           ; Show keystrokes asap.
+           inhibit-startup-message t     ; No splash screen please.
+           initial-scratch-message nil   ; Clean scratch buffer.
+           ring-bell-function 'ignore    ; Quiet.
+           undo-tree-auto-save-history t ; Save undo history between sessions.
+           undo-tree-history-directory-alist
+           ;; Put undo-history files in a directory, if it exists.
+           (let ((undo-dir (concat user-emacs-directory "undo")))
+             (and (file-exists-p undo-dir)
+                  (list (cons "." undo-dir)))))
 
      ;; Some mac-bindings interfere with Emacs bindings.
      (when (boundp 'mac-pass-command-to-system)
@@ -239,11 +272,11 @@
    change them in a single buffer. Using =setq-default= we change the
    buffer-local variable's default value.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq-default fill-column 76                    ; Maximum line width.
-                   indent-tabs-mode nil              ; Use spaces instead of tabs.
-                   split-width-threshold 100         ; Split verticly by default.
-                   auto-fill-function 'do-auto-fill) ; Auto-fill-mode everywhere.
+   #+BEGIN_SRC emacs-lisp
+   (setq-default fill-column 76                    ; Maximum line width.
+                 indent-tabs-mode nil              ; Use spaces instead of tabs.
+                 split-width-threshold 100         ; Split verticly by default.
+                 auto-fill-function 'do-auto-fill) ; Auto-fill-mode everywhere.
    #+END_SRC
 
    The =load-path= specifies where Emacs should look for =.el=-files (or
@@ -251,62 +284,62 @@
    extensions that have been installed manually (these are mostly my own
    projects).
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (let ((default-directory (concat user-emacs-directory "site-lisp/")))
-       (when (file-exists-p default-directory)
-         (normal-top-level-add-to-load-path '("."))
-         (normal-top-level-add-subdirs-to-load-path)))
+   #+BEGIN_SRC emacs-lisp
+   (let ((default-directory (concat user-emacs-directory "site-lisp/")))
+     (when (file-exists-p default-directory)
+       (normal-top-level-add-to-load-path '("."))
+       (normal-top-level-add-subdirs-to-load-path)))
    #+END_SRC
 
    Answering /yes/ and /no/ to each question from Emacs can be tedious, a
    single /y/ or /n/ will suffice.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (fset 'yes-or-no-p 'y-or-n-p)
+   #+BEGIN_SRC emacs-lisp
+   (fset 'yes-or-no-p 'y-or-n-p)
    #+END_SRC
 
    To avoid file system clutter we put all auto saved files in a single
    directory.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defvar emacs-autosave-directory
-       (concat user-emacs-directory "autosaves/")
-       "This variable dictates where to put auto saves. It is set to a
-       directory called autosaves located wherever your .emacs.d/ is
-       located.")
+   #+BEGIN_SRC emacs-lisp
+   (defvar emacs-autosave-directory
+     (concat user-emacs-directory "autosaves/")
+     "This variable dictates where to put auto saves. It is set to a
+     directory called autosaves located wherever your .emacs.d/ is
+     located.")
 
-     ;; Sets all files to be backed up and auto saved in a single directory.
-     (setq backup-directory-alist
-           `((".*" . ,emacs-autosave-directory))
-           auto-save-file-name-transforms
-           `((".*" ,emacs-autosave-directory t)))
+   ;; Sets all files to be backed up and auto saved in a single directory.
+   (setq backup-directory-alist
+         `((".*" . ,emacs-autosave-directory))
+         auto-save-file-name-transforms
+         `((".*" ,emacs-autosave-directory t)))
    #+END_SRC
 
    Set =utf-8= as preferred coding system.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (set-language-environment "UTF-8")
+   #+BEGIN_SRC emacs-lisp
+   (set-language-environment "UTF-8")
    #+END_SRC
 
    By default the =narrow-to-region= command is disabled and issues a
    warning, because it might confuse new users. I find it useful sometimes,
    and don't want to be warned.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (put 'narrow-to-region 'disabled nil)
+   #+BEGIN_SRC emacs-lisp
+   (put 'narrow-to-region 'disabled nil)
    #+END_SRC
 
    Call =auto-complete= default configuration, which enables =auto-complete=
    globally.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (ac-config-default)
+   #+BEGIN_SRC emacs-lisp
+     (eval-after-load 'auto-complete-config `(ac-config-default))
    #+END_SRC
 
    Automaticly revert =doc-view=-buffers when the file changes on disk.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-hook 'doc-view-mode-hook 'auto-revert-mode)
+   #+BEGIN_SRC emacs-lisp
+   (add-hook 'doc-view-mode-hook 'auto-revert-mode)
    #+END_SRC
 
 ** Modes
@@ -315,22 +348,20 @@
    particularly useful. We create a list of these modes, and disable all of
    these.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (dolist (mode
-              '(tool-bar-mode                ; No toolbars, more room for text.
-                scroll-bar-mode              ; No scroll bars either.
-                blink-cursor-mode))          ; The blinking cursor gets old.
-       (funcall mode 0))
+   #+BEGIN_SRC emacs-lisp
+   (dolist (mode
+            '(tool-bar-mode                ; No toolbars, more room for text.
+              scroll-bar-mode              ; No scroll bars either.
+              blink-cursor-mode))          ; The blinking cursor gets old.
+     (funcall mode 0))
    #+END_SRC
 
    Let's apply the same technique for enabling modes that are disabled by
    default.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (dolist (mode
               '(abbrev-mode                ; E.g. sopl -> System.out.println.
-                auto-compile-on-load-mode  ; Compile .el files on load ...
-                auto-compile-on-save-mode  ; ... and save.
                 column-number-mode         ; Show column number in mode line.
                 delete-selection-mode      ; Replace selected text.
                 recentf-mode               ; Recently opened files.
@@ -339,12 +370,16 @@
                 desktop-save-mode          ; Saves emacs session
                 global-visual-line-mode))  ; Break lines for viewing pleasure
        (funcall mode 1))
+
+     (eval-after-load 'auto-compile
+       '((auto-compile-on-save-mode 1)))   ; compile .el files on save.
+
    #+END_SRC
 
    This makes =.md=-files open in =markdown-mode=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
+   #+BEGIN_SRC emacs-lisp
+   (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
    #+END_SRC
 
 ** Visual
@@ -353,7 +388,7 @@
  
    Change the color-theme to =monokai= (downloaded using =package=).
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (load-theme 'monokai t)
    #+END_SRC
 
@@ -369,30 +404,30 @@
    [[https://github.com/milkypostman/powerline][Powerline]] is an extension to customize the mode line. This is modified
    version =powerline-nano-theme=. 
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq-default
-      mode-line-format
-      '("%e"
-        (:eval
-         (let* ((active (powerline-selected-window-active))
-                ;; left hand side displays Read only or Modified.
-                (lhs (list (powerline-raw
-                            (cond (buffer-read-only "Read only")
-                                  ((buffer-modified-p) "Modified")
-                                  (t "")) nil 'l)))
-                ;; right side hand displays (line,column).
-                (rhs (list
-                      (powerline-raw
-                       (concat
-                        "(" (number-to-string (line-number-at-pos))
-                        "," (number-to-string (current-column)) ")") nil 'r)))
-                ;; center displays buffer name.
-                (center (list (powerline-raw "%b" nil))))
-           (concat (powerline-render lhs)
-                   (powerline-fill-center nil (/ (powerline-width center) 2.0))
-                   (powerline-render center)
-                   (powerline-fill nil (powerline-width rhs))
-                   (powerline-render rhs))))))
+   #+BEGIN_SRC emacs-lisp
+   (setq-default
+    mode-line-format
+    '("%e"
+      (:eval
+       (let* ((active (powerline-selected-window-active))
+              ;; left hand side displays Read only or Modified.
+              (lhs (list (powerline-raw
+                          (cond (buffer-read-only "Read only")
+                                ((buffer-modified-p) "Modified")
+                                (t "")) nil 'l)))
+              ;; right side hand displays (line,column).
+              (rhs (list
+                    (powerline-raw
+                     (concat
+                      "(" (number-to-string (line-number-at-pos))
+                      "," (number-to-string (current-column)) ")") nil 'r)))
+              ;; center displays buffer name.
+              (center (list (powerline-raw "%b" nil))))
+         (concat (powerline-render lhs)
+                 (powerline-fill-center nil (/ (powerline-width center) 2.0))
+                 (powerline-render center)
+                 (powerline-fill nil (powerline-width rhs))
+                 (powerline-render rhs))))))
    #+END_SRC
 
    This is what it looks like:
@@ -414,36 +449,36 @@
    possibilities. Using =ido-vertical-mode= changes the way possibilities
    are displayed, and =flx-ido-mode= enables fuzzy matching.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (dolist (mode
-              '(ido-mode                   ; Interactivly do.
-                ido-everywhere             ; Use Ido for all buffer/file reading.
-                ido-vertical-mode          ; Makes ido-mode display vertically.
-                flx-ido-mode))             ; Toggle flx ido mode.
-       (funcall mode 1))
+   #+BEGIN_SRC emacs-lisp
+   (dolist (mode
+            '(ido-mode                   ; Interactivly do.
+              ido-everywhere             ; Use Ido for all buffer/file reading.
+              ido-vertical-mode          ; Makes ido-mode display vertically.
+              flx-ido-mode))             ; Toggle flx ido mode.
+     (funcall mode 1))
    #+END_SRC
 
    We can set the order of file selections in =ido=. I prioritize source
    files along with =org=- and =tex=-files.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq ido-file-extensions-order
-           '(".el" ".scm" ".lisp" ".java" ".c" ".h" ".org" ".tex"))
+   #+BEGIN_SRC emacs-lisp
+   (setq ido-file-extensions-order
+         '(".el" ".scm" ".lisp" ".java" ".c" ".h" ".org" ".tex"))
    #+END_SRC
 
    Sometimes when using =ido-switch-buffer= the =*Messages*= buffer get in
    the way, so we set it to be ignored (it can be accessed using =C-h e=, so
    there is really no need for it in the buffer list).
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-to-list 'ido-ignore-buffers "*Messages*")
+   #+BEGIN_SRC emacs-lisp
+   (add-to-list 'ido-ignore-buffers "*Messages*")
    #+END_SRC
 
    To make =M-x= behave more like =ido-mode= we can use the =smex=
    package. It needs to be initialized, and we can replace the binding to
    the standard =execute-extended-command= with =smex=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (smex-initialize)
      (global-set-key (kbd "M-x") 'smex)
    #+END_SRC
@@ -453,37 +488,37 @@
    Define a function to display week numbers in =calender-mode=. The snippet
    is from [[http://www.emacswiki.org/emacs/CalendarWeekNumbers][EmacsWiki]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun calendar-show-week (arg)
-       "Displaying week number in calendar-mode."
-       (interactive "P")
-       (copy-face font-lock-constant-face 'calendar-iso-week-face)
-       (set-face-attribute
-        'calendar-iso-week-face nil :height 0.7)
-       (setq calendar-intermonth-text
-             (and arg
-                  '(propertize
-                    (format
-                     "%2d"
-                     (car (calendar-iso-from-absolute
-                           (calendar-absolute-from-gregorian
-                            (list month day year)))))
-                    'font-lock-face 'calendar-iso-week-face))))
+   #+BEGIN_SRC emacs-lisp
+   (defun calendar-show-week (arg)
+     "Displaying week number in calendar-mode."
+     (interactive "P")
+     (copy-face font-lock-constant-face 'calendar-iso-week-face)
+     (set-face-attribute
+      'calendar-iso-week-face nil :height 0.7)
+     (setq calendar-intermonth-text
+           (and arg
+                '(propertize
+                  (format
+                   "%2d"
+                   (car (calendar-iso-from-absolute
+                         (calendar-absolute-from-gregorian
+                          (list month day year)))))
+                  'font-lock-face 'calendar-iso-week-face))))
    #+END_SRC
 
    Evaluate the =calendar-show-week= function.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (calendar-show-week t)
+   #+BEGIN_SRC emacs-lisp
+   (calendar-show-week t)
    #+END_SRC
 
    Set Monday as the first day of the week, and set my location.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq calendar-week-start-day 1
-           calendar-latitude 60.0
-           calendar-longitude 10.7
-           calendar-location-name "Oslo, Norway")
+   #+BEGIN_SRC emacs-lisp
+   (setq calendar-week-start-day 1
+         calendar-latitude 60.0
+         calendar-longitude 10.7
+         calendar-location-name "Oslo, Norway")
    #+END_SRC
 
 ** Mail
@@ -493,56 +528,42 @@
    installed we bind =load-mail-setup= to =nil=. If the value is changed to
    a =non-nil= value mail is setup.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (defvar load-mail-setup nil)
-     
+
      (when load-mail-setup
-       ;; We need mu4e
-       (require 'mu4e)
-     
-       ;; Some basic mu4e settings.
-       (setq mu4e-maildir           "~/.ifimail"     ; top-level Maildir
-             mu4e-sent-folder       "/INBOX.Sent"    ; folder for sent messages
-             mu4e-drafts-folder     "/INBOX.Drafts"  ; unfinished messages
-             mu4e-trash-folder      "/INBOX.Trash"   ; trashed messages
-             mu4e-refile-folder     "/INBOX.Archive" ; saved messages
-             mu4e-get-mail-command  "offlineimap"    ; offlineimap to fetch mail
-             mu4e-compose-signature "- Lars"         ; Sign my name
-             mu4e-update-interval   (* 5 60)         ; update every 5 min
-             mu4e-confirm-quit      nil              ; just quit
-             mu4e-view-show-images  t                ; view images
-             mu4e-html2text-command
-             "html2text -utf8")                      ; use utf-8
-     
-       ;; Setup for sending mail.
-       (setq user-full-name
-             "Lars Tveito"                        ; Your full name
-             user-mail-address
-             "larstvei@ifi.uio.no"                ; And email-address
-             smtpmail-smtp-server
-             "smtp.uio.no"                        ; Host to mail-server
-             smtpmail-smtp-service 465            ; Port to mail-server
-             smtpmail-stream-type 'ssl            ; Protocol used for sending
-             send-mail-function 'smtpmail-send-it ; Use smpt to send
-             mail-user-agent 'mu4e-user-agent)    ; Use mu4e!
-     
-       ;; Register file types that can be handled by ImageMagick.
-       (when (fboundp 'imagemagick-register-types)
-         (imagemagick-register-types))
-     
-       (defadvice mu4e (before show-mu4e (arg) activate)
-         "Always show mu4e in fullscreen and remember window
-     configuration."
-         (unless arg
-           (window-configuration-to-register :mu4e-fullscreen)
-           (mu4e-update-mail-and-index t)
-           (delete-other-windows)))
-     
-       (defadvice mu4e-quit (after restore-windows nil activate)
-         "Restore window configuration."
-         (jump-to-register :mu4e-fullscreen))
-     
-       ;; Overwrite the native 'compose-mail' binding to 'show-mu4e'.
+       (eval-after-load 'mu4e
+         '(progn
+            ;; Some basic mu4e settings.
+            (setq mu4e-maildir           "~/.ifimail"     ; top-level Maildir
+                  mu4e-sent-folder       "/INBOX.Sent"    ; folder for sent messages
+                  mu4e-drafts-folder     "/INBOX.Drafts"  ; unfinished messages
+                  mu4e-trash-folder      "/INBOX.Trash"   ; trashed messages
+                  mu4e-refile-folder     "/INBOX.Archive" ; saved messages
+                  mu4e-get-mail-command  "offlineimap"    ; offlineimap to fetch mail
+                  mu4e-compose-signature "- Lars"         ; Sign my name
+                  mu4e-update-interval   (* 5 60)         ; update every 5 min
+                  mu4e-confirm-quit      nil              ; just quit
+                  mu4e-view-show-images  t                ; view images
+                  mu4e-html2text-command
+                  "html2text -utf8")                      ; use utf-8
+
+            ;; Setup for sending mail.
+            (setq user-full-name
+                  "Lars Tveito"                        ; Your full name
+                  user-mail-address
+                  "larstvei@ifi.uio.no"                ; And email-address
+                  smtpmail-smtp-server
+                  "smtp.uio.no"                        ; Host to mail-server
+                  smtpmail-smtp-service 465            ; Port to mail-server
+                  smtpmail-stream-type 'ssl            ; Protocol used for sending
+                  send-mail-function 'smtpmail-send-it ; Use smpt to send
+                  mail-user-agent 'mu4e-user-agent)    ; Use mu4e!
+
+            ;; Register file types that can be handled by ImageMagick.
+            (when (fboundp 'imagemagick-register-types)
+              (imagemagick-register-types))))
+       (autoload 'mu4e "mu4e" nil t)
        (global-set-key (kbd "C-x m") 'mu4e))
    #+END_SRC
 
@@ -551,8 +572,8 @@
    Flyspell offers on-the-fly spell checking. We can enable flyspell for all
    text-modes with this snippet.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-hook 'text-mode-hook 'turn-on-flyspell)
+   #+BEGIN_SRC emacs-lisp
+   (add-hook 'text-mode-hook 'turn-on-flyspell)
    #+END_SRC
 
    To use flyspell for programming there is =flyspell-prog-mode=, that only
@@ -560,45 +581,69 @@
    programming modes using the =prog-mode-hook=. Flyspell interferes with
    auto-complete mode, but there is a workaround provided by auto complete.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (add-hook 'prog-mode-hook 'flyspell-prog-mode)
-     (ac-flyspell-workaround)
+     (eval-after-load 'auto-complete
+       '(ac-flyspell-workaround))
    #+END_SRC
 
-   To cycle through dictionary's we can define a variable containing a
-   cyclic list of installed language packs.
+   When working with several languages, we should be able to cycle through
+   the languages we most frequently use. Every buffer should have a separate
+   cycle of languages, so that cycling in one buffer does not change the
+   state in a different buffer (this problem occurs if you only have one
+   global cycle). We can implement this by using a [[http://www.gnu.org/software/emacs/manual/html_node/elisp/Closures.html][closure]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defvar ispell-languages '#1=("english" "norsk" . #1#))
-   #+END_SRC
-
-   Now we only need a small function to change set the language and shift
-   the list.
-
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (defun cycle-languages ()
-       "Changes the ispell-dictionary to whatever is the next (or cdr) in the
-     LANGUAGES (cyclic) list."
-       (interactive)
-       (ispell-change-dictionary
-        (car (setq ispell-languages (cdr ispell-languages)))))
+       "Changes the ispell dictionary to the first element in
+     ISPELL-LANGUAGES, and returns an interactive function that cycles
+     the languages in ISPELL-LANGUAGES when invoked."
+       (lexical-let ((ispell-languages '#1=("american" "norsk" . #1#)))
+         (ispell-change-dictionary (car ispell-languages))
+         (lambda ()
+           (interactive)
+           ;; Rotates the languages cycle and changes the ispell dictionary.
+           (ispell-change-dictionary
+            (car (setq ispell-languages (cdr ispell-languages)))))))
+   #+END_SRC
+
+   =Flyspell= signals an error if there is no spell-checking tool is
+   installed. We can advice =turn-on=flyspell= and =flyspell-prog-mode= to
+   only try to enable =flyspell= if a spell-checking tool is available. Also
+   we want to enable cycling the languages by typing =C-c l=, so we bind the
+   function returned from =cycle-languages=.
+
+   #+BEGIN_SRC emacs-lisp
+     (defadvice turn-on-flyspell (around check nil activate)
+       "Turns on flyspell only if a spell-checking tool is installed."
+       (when (executable-find ispell-program-name)
+         (local-set-key (kbd "C-c l") (cycle-languages))
+         ad-do-it))
+   #+END_SRC
+
+   #+BEGIN_SRC emacs-lisp
+     (defadvice flyspell-prog-mode (around check nil activate)
+       "Turns on flyspell only if a spell-checking tool is installed."
+       (when (executable-find ispell-program-name)
+         (local-set-key (kbd "C-c l") (cycle-languages))
+         ad-do-it))
    #+END_SRC
 
 ** Org
 
    I use =org-agenda= for appointments and such.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq org-agenda-start-on-weekday nil              ; Show agenda from today.
-           org-agenda-files '("~/Dropbox/life.org")     ; A list of agenda files.
-           org-agenda-default-appointment-duration 120) ; 2 hours appointments.
+   #+BEGIN_SRC emacs-lisp
+   (setq org-agenda-start-on-weekday nil              ; Show agenda from today.
+         org-agenda-files '("~/Dropbox/life.org")     ; A list of agenda files.
+         org-agenda-default-appointment-duration 120) ; 2 hours appointments.
    #+END_SRC
 
    When editing org-files with source-blocks, we want the source blocks to
    be themed as they would in their native mode.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq org-src-fontify-natively t)
+   #+BEGIN_SRC emacs-lisp
+   (setq org-src-fontify-natively t)
    #+END_SRC
 
 ** Interactive functions
@@ -607,101 +652,107 @@
    To search recent files useing =ido-mode= we add this snippet from
    [[http://www.emacswiki.org/emacs/CalendarWeekNumbers][EmacsWiki]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun recentf-ido-find-file ()
-       "Find a recent file using Ido."
-       (interactive)
-       (let ((f (ido-completing-read "Choose recent file: " recentf-list nil t)))
-         (when f
-           (find-file f))))
+   #+BEGIN_SRC emacs-lisp
+   (defun recentf-ido-find-file ()
+     "Find a recent file using Ido."
+     (interactive)
+     (let ((f (ido-completing-read "Choose recent file: " recentf-list nil t)))
+       (when f
+         (find-file f))))
    #+END_SRC
 
    =just-one-space= removes all whitespace around a point - giving it a
    negative argument it removes newlines as well. We wrap a interactive
    function around it to be able to bind it to a key.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun remove-whitespace-inbetween ()
-       "Removes whitespace before and after the point."
-       (interactive)
-       (just-one-space -1))
+   #+BEGIN_SRC emacs-lisp
+   (defun remove-whitespace-inbetween ()
+     "Removes whitespace before and after the point."
+     (interactive)
+     (just-one-space -1))
    #+END_SRC
 
    This interactive function switches you to a =shell=, and if triggered in
    the shell it switches back to the previous buffer.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun switch-to-shell ()
-       "Jumps to eshell or back."
-       (interactive)
-       (if (string= (buffer-name) "*shell*")
-           (switch-to-prev-buffer)
-         (shell)))
+   #+BEGIN_SRC emacs-lisp
+   (defun switch-to-shell ()
+     "Jumps to eshell or back."
+     (interactive)
+     (if (string= (buffer-name) "*shell*")
+         (switch-to-prev-buffer)
+       (shell)))
    #+END_SRC
 
    To duplicate either selected text or a line we define this interactive
    function.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun duplicate-thing ()
-       "Ethier duplicates the line or the region"
-       (interactive)
-       (save-excursion
-         (let ((start (if (region-active-p) (region-beginning) (point-at-bol)))
-               (end   (if (region-active-p) (region-end) (point-at-eol))))
-           (goto-char end)
-           (unless (region-active-p)
-             (newline))
-           (insert (buffer-substring start end)))))
+   #+BEGIN_SRC emacs-lisp
+   (defun duplicate-thing ()
+     "Ethier duplicates the line or the region"
+     (interactive)
+     (save-excursion
+       (let ((start (if (region-active-p) (region-beginning) (point-at-bol)))
+             (end   (if (region-active-p) (region-end) (point-at-eol))))
+         (goto-char end)
+         (unless (region-active-p)
+           (newline))
+         (insert (buffer-substring start end)))))
    #+END_SRC
 
    To tidy up a buffer we define this function borrowed from [[https://github.com/simenheg][simenheg]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun tidy ()
-       "Ident, untabify and unwhitespacify current buffer, or region if active."
-       (interactive)
-       (let ((beg (if (region-active-p) (region-beginning) (point-min)))
-             (end (if (region-active-p) (region-end) (point-max))))
-         (indent-region beg end)
-         (whitespace-cleanup)
-         (untabify beg (if (< end (point-max)) end (point-max)))))
+   #+BEGIN_SRC emacs-lisp
+   (defun tidy ()
+     "Ident, untabify and unwhitespacify current buffer, or region if active."
+     (interactive)
+     (let ((beg (if (region-active-p) (region-beginning) (point-min)))
+           (end (if (region-active-p) (region-end) (point-max))))
+       (indent-region beg end)
+       (whitespace-cleanup)
+       (untabify beg (if (< end (point-max)) end (point-max)))))
+   #+END_SRC
+
+   Presentation mode.
+
+   #+BEGIN_SRC emacs-lisp
+
    #+END_SRC
 
 ** Key bindings
 
    Bindings for [[https://github.com/magnars/expand-region.el][expand-region]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (global-set-key (kbd "C-'")  'er/expand-region)
-     (global-set-key (kbd "C-;")  'er/contract-region)
+   #+BEGIN_SRC emacs-lisp
+   (global-set-key (kbd "C-'")  'er/expand-region)
+   (global-set-key (kbd "C-;")  'er/contract-region)
    #+END_SRC
 
    Bindings for [[https://github.com/magnars/multiple-cursors.el][multiple-cursors]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (global-set-key (kbd "C-c e")  'mc/edit-lines)
-     (global-set-key (kbd "C-c a")  'mc/mark-all-like-this)
-     (global-set-key (kbd "C-c n")  'mc/mark-next-like-this)
+   #+BEGIN_SRC emacs-lisp
+   (global-set-key (kbd "C-c e")  'mc/edit-lines)
+   (global-set-key (kbd "C-c a")  'mc/mark-all-like-this)
+   (global-set-key (kbd "C-c n")  'mc/mark-next-like-this)
    #+END_SRC
 
    Bindings for [[http://magit.github.io][Magit]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (global-set-key (kbd "C-c m") 'magit-status)
+   #+BEGIN_SRC emacs-lisp
+   (global-set-key (kbd "C-c m") 'magit-status)
    #+END_SRC
 
    Bindings for [[https://github.com/winterTTr/ace-jump-mode][ace-jump-mode]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (global-set-key (kbd "C-c SPC") 'ace-jump-mode)
+   #+BEGIN_SRC emacs-lisp
+   (global-set-key (kbd "C-c SPC") 'ace-jump-mode)
    #+END_SRC
 
    Bindings for =move-text=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (global-set-key (kbd "<M-S-up>")    'move-text-up)
-     (global-set-key (kbd "<M-S-down>")  'move-text-down)
+   #+BEGIN_SRC emacs-lisp
+   (global-set-key (kbd "<M-S-up>")    'move-text-up)
+   (global-set-key (kbd "<M-S-down>")  'move-text-down)
    #+END_SRC
 
    Bind some native Emacs functions.
@@ -712,17 +763,15 @@
      (global-set-key (kbd "C-x k")    'kill-this-buffer)
      (global-set-key (kbd "C-x C-r")  'recentf-ido-find-file)
      (global-set-key (kbd "C-S-k")  '(lambda () (interactive) (kill-line 0)))
-
    #+END_SRC
 
    Bind the functions defined [[sec:defuns][above]].
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (global-set-key (kbd "C-c l")    'cycle-languages)
-     (global-set-key (kbd "C-c j")    'remove-whitespace-inbetween)
-     (global-set-key (kbd "C-x t")    'switch-to-shell)
-     (global-set-key (kbd "C-c d")    'duplicate-thing)
-     (global-set-key (kbd "<C-tab>")  'tidy)
+   #+BEGIN_SRC emacs-lisp
+   (global-set-key (kbd "C-c j")    'remove-whitespace-inbetween)
+   (global-set-key (kbd "C-x t")    'switch-to-shell)
+   (global-set-key (kbd "C-c d")    'duplicate-thing)
+   (global-set-key (kbd "<C-tab>")  'tidy)
    #+END_SRC
 
 ** Advice
@@ -731,34 +780,55 @@
    advice makes =eval-last-sexp= (bound to =C-x C-e=) replace the sexp with
    the value.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defadvice eval-last-sexp (around replace-sexp (arg) activate)
-       "Replace sexp when called with a prefix argument."
-       (if arg
-           (let ((pos (point)))
-             ad-do-it
-             (goto-char pos)
-             (backward-kill-sexp)
-             (forward-sexp))
-         ad-do-it))
+   #+BEGIN_SRC emacs-lisp
+   (defadvice eval-last-sexp (around replace-sexp (arg) activate)
+     "Replace sexp when called with a prefix argument."
+     (if arg
+         (let ((pos (point)))
+           ad-do-it
+           (goto-char pos)
+           (backward-kill-sexp)
+           (forward-sexp))
+       ad-do-it))
    #+END_SRC
 
-   =Flyspell= signals an error if there is no spell-checking tool is
-   installed. We can advice =turn-on=flyspell= and =flyspell-prog-mode= to
-   only try to enable =flyspell= if a spell-checking tool is avalible.
+   When interactively changing the theme (using =M-x load-theme=), the
+   current custom theme is not disabled. This often gives weird-looking
+   results; we can advice =load-theme= to always disable themes currently
+   enabled themes. 
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defadvice turn-on-flyspell (around check nil activate)
-       "Turns on flyspell only if a spell-checking tool is installed."
-       (when (executable-find ispell-program-name)
-         ad-do-it))
+   #+BEGIN_SRC emacs-lisp
+     (defadvice load-theme
+       (before disable-before-load (theme &optional no-confirm no-enable) activate) 
+       (mapc 'disable-theme custom-enabled-themes))
    #+END_SRC
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defadvice flyspell-prog-mode (around check nil activate)
-       "Turns on flyspell only if a spell-checking tool is installed."
-       (when (executable-find ispell-program-name)
-         ad-do-it))
+** Presentation-mode
+
+   When giving talks it's nice to be able to scale the text
+   globally. =text-scale-mode= works great for a single buffer, this advice
+   makes this work globally.
+
+   #+BEGIN_SRC emacs-lisp
+     (defadvice text-scale-mode (around all-buffers (arg) activate)
+       (if (not global-text-scale-mode)
+           ad-do-it
+         (setq-default text-scale-mode-amount text-scale-mode-amount)
+         (dolist (buffer (buffer-list))
+           (with-current-buffer buffer
+             ad-do-it))))
+   #+END_SRC
+
+   We don't want this to be default behavior, so we can make a global mode
+   from the =text-scale-mode=, using =define-globalized-minor-mode=.
+
+   #+BEGIN_SRC emacs-lisp
+     (require 'face-remap)
+
+     (define-globalized-minor-mode
+       global-text-scale-mode
+       text-scale-mode
+       (lambda () (text-scale-mode 1)))
    #+END_SRC
 
 ** Fixes
@@ -777,20 +847,20 @@ layouts in Gnome WM.
    can add some extra lisp-modes. We run the =pretty-lambda-for-modes=
    function to activate =pretty-lambda-mode= in lisp modes.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (dolist (mode '(slime-repl-mode geiser-repl-mode))
-       (add-to-list 'pretty-lambda-auto-modes mode))
+   #+BEGIN_SRC emacs-lisp
+   (dolist (mode '(slime-repl-mode geiser-repl-mode))
+     (add-to-list 'pretty-lambda-auto-modes mode))
 
-     (pretty-lambda-for-modes)
+   (pretty-lambda-for-modes)
    #+END_SRC
 
    I use =Paredit= when editing lisp code, we enable this for all lisp-modes
    in the =pretty-lambda-auto-modes= list.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (dolist (mode pretty-lambda-auto-modes)
-       ;; add paredit-mode to all mode-hooks
-       (add-hook (intern (concat (symbol-name mode) "-hook")) 'paredit-mode))
+   #+BEGIN_SRC emacs-lisp
+   (dolist (mode pretty-lambda-auto-modes)
+     ;; add paredit-mode to all mode-hooks
+     (add-hook (intern (concat (symbol-name mode) "-hook")) 'paredit-mode))
    #+END_SRC
 
 *** Emacs Lisp
@@ -798,9 +868,9 @@ layouts in Gnome WM.
     In =emacs-lisp-mode= we can enable =eldoc-mode= to display information
     about a function or a variable in the echo area.
 
-    #+BEGIN_SRC emacs-lisp :tangle yes
-      (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
-      (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
+    #+BEGIN_SRC emacs-lisp
+    (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
+    (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
     #+END_SRC
 
 *** Common lisp
@@ -811,26 +881,26 @@ layouts in Gnome WM.
     and you can install Slime following the instructions from the site along
     with this snippet.
 
-    #+BEGIN_SRC emacs-lisp :tangle yes
-      (when (file-exists-p "~/quicklisp/slime-helper.elc")
-        (load (expand-file-name "~/quicklisp/slime-helper.elc")))
+    #+BEGIN_SRC emacs-lisp
+    (when (file-exists-p "~/.quicklisp/slime-helper.el")
+      (load (expand-file-name "~/.quicklisp/slime-helper.el")))
     #+END_SRC
 
     We can specify what Common Lisp program Slime should use (I use SBCL).
 
-    #+BEGIN_SRC emacs-lisp :tangle yes
-      (setq inferior-lisp-program "sbcl")
+    #+BEGIN_SRC emacs-lisp
+    (setq inferior-lisp-program "sbcl")
     #+END_SRC
 
     To improve auto completion for Common Lisp editing we can use =ac-slime=
     which uses slime completions as a source.
 
-    #+BEGIN_SRC emacs-lisp :tangle yes
-      (add-hook 'slime-mode-hook 'set-up-slime-ac)
-      (add-hook 'slime-repl-mode-hook 'set-up-slime-ac)
+    #+BEGIN_SRC emacs-lisp
+    (add-hook 'slime-mode-hook 'set-up-slime-ac)
+    (add-hook 'slime-repl-mode-hook 'set-up-slime-ac)
 
-      (eval-after-load "auto-complete"
-        '(add-to-list 'ac-modes 'slime-repl-mode))
+    (eval-after-load "auto-complete"
+      '(add-to-list 'ac-modes 'slime-repl-mode))
     #+END_SRC
 
 *** Scheme
@@ -839,12 +909,13 @@ layouts in Gnome WM.
     works pretty much out of the box, we only need to add auto completion,
     and specify which scheme-interpreter we prefer.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
      (add-hook 'geiser-mode-hook 'ac-geiser-setup)
      (add-hook 'geiser-repl-mode-hook 'ac-geiser-setup)
      (eval-after-load "auto-complete"
        '(add-to-list 'ac-modes 'geiser-repl-mode))
-     (setq geiser-active-implementations '(racket))
+     (eval-after-load "geiser"
+       '(add-to-list 'geiser-active-implementations 'plt-r5rs)) ;'(racket))
    #+END_SRC
 
 ** Java and C
@@ -853,7 +924,7 @@ layouts in Gnome WM.
    languages (C, C++, Java, etc...). I like being able to quickly compile
    using =C-c C-c= (instead of =M-x compile=), a habit from =latex-mode=.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp
 
               ;; defining a function that sets more accessible keyboard-bindings to
               ;; hiding/showing code-blocs
@@ -944,22 +1015,21 @@ layouts in Gnome WM.
    Some statements in Java appear often, and become tedious to write
    out. We can use abbrevs to speed this up.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (define-abbrev-table 'java-mode-abbrev-table
-       '(("psv" "public static void main(String[] args) {" nil 0)
-         ("sopl" "System.out.println" nil 0)
-         ("sop" "System.out.printf" nil 0)))
+   #+BEGIN_SRC emacs-lisp
+   (define-abbrev-table 'java-mode-abbrev-table
+     '(("psv" "public static void main(String[] args) {" nil 0)
+       ("sopl" "System.out.println" nil 0)
+       ("sop" "System.out.printf" nil 0)))
    #+END_SRC
    
    To be able to use the abbrev table defined above, =abbrev-mode= must be
    activated.
-   
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun java-setup ()
-       (abbrev-mode t)
-       (setq-local compile-command (concat "javac " (buffer-name))))
 
-     (add-hook 'java-mode-hook 'java-setup)
+   #+BEGIN_SRC emacs-lisp
+   (defun java-setup ()
+     (abbrev-mode t)
+     (setq-local compile-command (concat "javac " (buffer-name))))
+   (add-hook 'java-mode-hook 'java-setup)
    #+END_SRC
    
 ** Assembler
@@ -968,12 +1038,12 @@ layouts in Gnome WM.
    =comment-start= we can add comments using =M-;= like in other programming
    modes. Also in assembler should one be able to compile using =C-c C-c=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (defun asm-setup ()
-       (setq comment-start "#")
-       (local-set-key (kbd "C-c C-c") 'compile))
+   #+BEGIN_SRC emacs-lisp
+   (defun asm-setup ()
+     (setq comment-start "#")
+     (local-set-key (kbd "C-c C-c") 'compile))
 
-     (add-hook 'asm-mode-hook 'asm-setup)
+   (add-hook 'asm-mode-hook 'asm-setup)
    #+END_SRC
 
 ** LaTeX
@@ -981,15 +1051,16 @@ layouts in Gnome WM.
    =.tex=-files should be associated with =latex-mode= instead of
    =tex-mode=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-to-list 'auto-mode-alist '("\\.tex\\'" . latex-mode))
+   #+BEGIN_SRC emacs-lisp
+   (add-to-list 'auto-mode-alist '("\\.tex\\'" . latex-mode))
    #+END_SRC
 
    I like using the [[https://code.google.com/p/minted/][Minted]] package for source blocks in LaTeX. To make org
    use this we add the following snippet.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-to-list 'org-latex-packages-alist '("" "minted"))
+   #+BEGIN_SRC emacs-lisp
+     (eval-after-load 'org
+       '(add-to-list 'org-latex-packages-alist '("" "minted")))
      (setq org-latex-listings 'minted)
    #+END_SRC
 
@@ -999,15 +1070,17 @@ layouts in Gnome WM.
    Tex- and LaTeX-mode, we can add the flag with a rather dirty statement
    (if anyone finds a nicer way to do this, please let me know).
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (setq org-latex-pdf-process
-           (mapcar
-            (lambda (str)
-              (concat "pdflatex -shell-escape "
-                      (substring str (string-match "-" str))))
-            org-latex-pdf-process))
-     
-     (setcar (cdr (cddaar tex-compile-commands)) " -shell-escape ")
+   #+BEGIN_SRC emacs-lisp
+     (eval-after-load 'ox-latex
+       '(setq org-latex-pdf-process
+              (mapcar
+               (lambda (str)
+                 (concat "pdflatex -shell-escape "
+                         (substring str (string-match "-" str))))
+               org-latex-pdf-process)))
+
+     (eval-after-load 'tex-mode
+       '(setcar (cdr (cddaar tex-compile-commands)) " -shell-escape "))
    #+END_SRC
 
 ** Python
@@ -1016,13 +1089,13 @@ layouts in Gnome WM.
    dependent on some python programs as well, so make sure you follow the
    instructions from the site.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     ;; (setq jedi:server-command
-     ;;       (cons "python3" (cdr jedi:server-command))
-     ;;       python-shell-interpreter "python3")
-     (add-hook 'python-mode-hook 'jedi:setup)
-     (setq jedi:complete-on-dot t)
-     (add-hook 'python-mode-hook 'jedi:ac-setup)
+   #+BEGIN_SRC emacs-lisp
+   ;; (setq jedi:server-command
+   ;;       (cons "python3" (cdr jedi:server-command))
+   ;;       python-shell-interpreter "python3")
+   (add-hook 'python-mode-hook 'jedi:setup)
+   (setq jedi:complete-on-dot t)
+   (add-hook 'python-mode-hook 'jedi:ac-setup)
    #+END_SRC
 
 ** Haskell
@@ -1031,17 +1104,18 @@ layouts in Gnome WM.
    the echo area. Haskell has several indentation modes - I prefer using
    =haskell-indent=.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-hook 'haskell-mode-hook 'turn-on-haskell-doc-mode)
-     (add-hook 'haskell-mode-hook 'turn-on-haskell-indent)
+   #+BEGIN_SRC emacs-lisp
+   (add-hook 'haskell-mode-hook 'turn-on-haskell-doc-mode)
+   (add-hook 'haskell-mode-hook 'turn-on-haskell-indent)
    #+END_SRC
 
 ** Matlab
 
-   Matlab is very similar to Octave, which is supported by Emacs. We just
-   need to let =.m=-files be associated with =octave-mode=.
+   =Matlab-mode= works pretty good out of the box, but we can do without the
+   splash screen.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
-     (add-to-list 'matlab-shell-command-switches "-nosplash")
+   #+BEGIN_SRC emacs-lisp
+     (eval-after-load 'matlab
+       '(add-to-list 'matlab-shell-command-switches "-nosplash"))
    #+END_SRC
  
