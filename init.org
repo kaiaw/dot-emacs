@@ -42,7 +42,7 @@
    is built in to Emacs 24 and newer. To load downloaded packages we
    need to initialize =package=.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (require 'package)
      (setq package-enable-at-startup nil)
      (package-initialize)
@@ -51,7 +51,7 @@
    Packages can be fetched from different mirrors, [[http://melpa.milkbox.net/#/][melpa]] is the largest
    archive and is well maintained.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (add-to-list 'package-archives
                   '("MELPA" . "http://melpa.milkbox.net/packages/") t)
    #+END_SRC
@@ -59,7 +59,7 @@
    We can define a predicate that tells us wither or not the newest version
    of a package is installed.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (defun newest-package-installed-p (package)
        "Return true if the newest available PACKAGE is installed."
        (when (package-installed-p package)
@@ -75,7 +75,7 @@
    upgrades it if a new version has been released. Here our predicate comes
    in handy.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (defun upgrade-or-install-package (package)
        "Unless the newest available version of PACKAGE is installed
      PACKAGE is installed and the current version is deleted."
@@ -107,7 +107,7 @@
    third is a path to a file where a time-stamp is stored in order to check
    when packages were updated last.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (defvar days-between-updates 7)
      (defvar do-package-update-on-init t)
      (defvar package-last-update-file
@@ -120,7 +120,7 @@
    update. After that we must run the =time-stamp=-function to update the
    time-stamp.
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (require 'time-stamp)
      ;; Open the package-last-update-file
      (with-temp-file package-last-update-file
@@ -150,7 +150,7 @@
    up to date. Here are some packages I find useful (some of these
    configurations are also dependent on them).
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (when (and do-package-update-on-init
                 (y-or-n-p "Update all packages?"))
        (package-refresh-contents)
@@ -165,6 +165,7 @@
                   elscreen                        ; window session manager
                   expand-region                   ; Increase selected region by semantic units
                   flx-ido                         ; flx integration for ido
+                  idle-require
                   ido-vertical-mode               ; Makes ido-mode display vertically.
                   geiser                          ; GNU Emacs and Scheme talk to each other
                   haskell-mode                    ; A Haskell editing mode
@@ -394,7 +395,7 @@
 
    Use the [[http://www.levien.com/type/myfonts/inconsolata.html][Inconsolata]] font if it's installed on the system.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (cond ((member "Droid Sans Mono" (font-family-list))
             (set-face-attribute 'default nil :font "Droid Sans Mono-10"))
            ((member "Inconsolata" (font-family-list))
@@ -436,7 +437,7 @@
 
    Smooth scroll mode for smooth scrolling. 
    
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (require 'smooth-scroll)
      (smooth-scroll-mode t)
    #+END_SRC
@@ -757,7 +758,7 @@
 
    Bind some native Emacs functions.
 
-   #+BEGIN_SRC emacs-lisp :tangle yes
+   #+BEGIN_SRC emacs-lisp 
      (global-set-key (kbd "C-c s")    'ispell-word)
      (global-set-key (kbd "C-c t")    'org-agenda-list)
      (global-set-key (kbd "C-x k")    'kill-this-buffer)
@@ -835,7 +836,7 @@
 This is a workaround for dead-keys not working with emacs with some keyboard
 layouts in Gnome WM. 
 
-#+BEGIN_SRC elisp :tangle yes
+#+BEGIN_SRC elisp 
 (require 'iso-transl)
 #+END_SRC
 
@@ -882,8 +883,8 @@ layouts in Gnome WM.
     with this snippet.
 
     #+BEGIN_SRC emacs-lisp
-    (when (file-exists-p "~/.quicklisp/slime-helper.el")
-      (load (expand-file-name "~/.quicklisp/slime-helper.el")))
+    (when (file-exists-p "~/quicklisp/slime-helper.el")
+      (load (expand-file-name "~/quicklisp/slime-helper.el")))
     #+END_SRC
 
     We can specify what Common Lisp program Slime should use (I use SBCL).
